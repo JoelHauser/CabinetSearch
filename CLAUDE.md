@@ -7,7 +7,7 @@ called Cabinet Looter, the repo CabinetSearch).
 
 ## State as it stands
 
-**0.1.0 is built and packed but has never been run in game.** Every claim below about what the
+**0.1.0 is built, installed into H:\SPT4.1.X\BepInEx\plugins and pushed (8490dc6, 2026-10-03), but has never been run in game.** Every claim below about what the
 panel looks like is a prediction from the decompiled client and the prefab dump, not an
 observation. Treat it that way until a raid test says otherwise.
 
