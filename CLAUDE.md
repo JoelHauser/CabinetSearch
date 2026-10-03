@@ -81,9 +81,14 @@ holds it through the switch between drawers too: with no search running but `Cha
 `_searchButton.OnSearchStatusChanged` makes X stop every running drawer and the chain
 (`_chainStopped`); SEARCH resumes it.
 
+**1.0.0 released on GitHub 2026-10-03** at Joel's request: the 0.1.5 code, version bumped, with a
+simpler README and `MOD-PAGE.md` (Forge description). Last version actually run in game is 0.1.2;
+the side-by-side layout, the persistent search bar and both scroll fixes have not been seen in a
+raid yet. The README and mod page deliberately make no Inventory Walker claim until they have.
+
 ## What the next raid test has to look at
 
-1. `BepInEx\LogOutput.log` has `Cabinet Looter 0.1.5 loaded.` If instead it says the patches
+1. `BepInEx\LogOutput.log` has `Cabinet Looter 1.0.0 loaded.` If instead it says the patches
    could not be applied, a target signature has changed.
 2. Turn on **Log cabinet details** (F12). Opening a drawer should log `Opened card_file_box_0N ...`
    and `Showing N drawers from 1 cabinet(s).` No `Showing` line means the panel attach failed or
