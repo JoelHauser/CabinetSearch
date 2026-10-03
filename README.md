@@ -4,7 +4,7 @@ Open any drawer of a filing cabinet and loot the whole cabinet from one window.
 
 In vanilla Tarkov every drawer of a filing cabinet is its own container: open it, search it, close
 it, open the next one. With Cabinet Looter, opening any drawer shows every drawer of that cabinet
-in the loot panel, one under the other, and searches them one after another.
+in the loot panel, side by side in one row, and searches them one after another.
 
 - **Normal searching.** Drawers are searched at the usual speed, with your Search and Attention
   skills, one at a time (two with elite Attention). Items still appear one by one.
@@ -14,13 +14,15 @@ in the loot panel, one under the other, and searches them one after another.
   drawer of that cabinet carries on with the unfinished drawers.
 - **One cabinet at a time.** Only drawers of the cabinet you opened are shown, even when cabinets
   stand side by side. The optional cluster mode below changes that on purpose.
-- **Click a drawer's heading** to start or stop that drawer's search yourself.
+- **Click a drawer's heading** (the bar with its name and state) to start or stop that drawer's search yourself.
+- **The SEARCHING bar** at the top follows whichever drawer is being searched. Its X stops the
+  whole cabinet, not just the drawer you opened.
 
 ## Cabinet clusters (optional, off by default)
 
 Turn on **Include cabinets standing next to it** to also show the filing cabinets standing directly
 beside or on top of the one you opened, as one cluster: three cabinets in a row are looted from one
-window. A cabinet on the other side of a wall is never included. The gap allowed between cabinets
+window, one row per cabinet, all visible without scrolling. A cabinet on the other side of a wall is never included. The gap allowed between cabinets
 and the size of a cluster can be set.
 
 ## Settings

@@ -4,12 +4,12 @@ using System.Linq;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
+using EFT.InventoryLogic.Operations;
 using EFT.UI;
 using EFT.UI.DragAndDrop;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace CabinetLooter
 {
@@ -25,9 +25,10 @@ namespace CabinetLooter
     /// real drawer item through its own item context, exactly as vanilla binds the first, so
     /// dragging, quick moves, filters and the hidden "?" items all behave as they do in vanilla.
     ///
-    /// The search button, timer and "unsearched" overlay belong to the panel, not to a drawer, so
-    /// they stay with the opened drawer. The other drawers say their state in their heading, and
-    /// clicking a heading starts or stops that drawer's search.
+    /// The search button and timer in the panel's top bar belong to the opened drawer and are left
+    /// alone. The big "UNSEARCHED" overlay is hidden while the cabinet is shown, because it covers
+    /// the whole scroll area and so every drawer, not just the one it is about; each drawer's
+    /// heading says its own state instead, and clicking a heading starts or stops that drawer.
     /// </summary>
     internal sealed class CabinetSession
     {
@@ -35,11 +36,11 @@ namespace CabinetLooter
         {
             public LootableContainer Container;
             public SearchableItem Item;
-            public string Label;
+            public int CabinetIndex;
+            public int DrawerIndex;
             public bool IsOpened;
 
-            public TextMeshProUGUI Heading;
-            public string HeadingText;
+            public DrawerHeading Heading;
             public ContainedGridsView Grids;
             public ItemContext RawContext;
             public InventorySelectableItemContext Context;
@@ -51,8 +52,12 @@ namespace CabinetLooter
             /// <summary>Stopped by the player, or failed. Not started again automatically while the panel is open.</summary>
             public bool Stopped;
 
-            /// <summary>Started by this mod once already. A drawer is never auto-started twice per opening.</summary>
+            /// <summary>Started by this mod once already. A drawer is never auto-started twice per showing.</summary>
             public bool Started;
+
+            public string Label => "DRAWER " + (DrawerIndex + 1) + (IsOpened ? " (OPENED)" : string.Empty);
+
+            public string LogName => "cabinet " + (CabinetIndex + 1) + " drawer " + (DrawerIndex + 1);
         }
 
         private static readonly AccessTools.FieldRef<SearchableItemView, ContainedGridsView> ContainedGridsViewRef =
@@ -71,10 +76,30 @@ namespace CabinetLooter
         private readonly List<Entry> _searchOrder;
         private readonly int _cabinetCount;
 
+        /// <summary>Titles and spacers, everything added to Content that is not a drawer's heading or grids.</summary>
+        private readonly List<GameObject> _decorations = new List<GameObject>();
+
         private SimpleStashPanel _panel;
+        private SearchableView _searchableView;
         private InventoryController _inventoryController;
         private IPlayerSearchController _searcher;
         private FilterPanel _filterPanel;
+        private Transform _content;
+
+        /// <summary>Vanilla's grid view for the opened drawer, while it sits in one of our columns.</summary>
+        private ContainedGridsView _openedGrids;
+
+        /// <summary>Unsubscribes our listener from the top bar's search button and its X.</summary>
+        private Action _unsubscribeSearchButton;
+
+        /// <summary>The player pressed the top bar's X: no more automatic searches this showing.</summary>
+        private bool _chainStopped;
+
+        private const float ColumnSpacing = 8f;
+        private const float MinColumnWidth = 132f;
+
+        /// <summary>When the one-shot layout dump is due (debug logging only); 0 once written.</summary>
+        private float _layoutDumpAt;
 
         private CabinetSession(List<Entry> display, int cabinetCount)
         {
@@ -115,7 +140,8 @@ namespace CabinetLooter
                     {
                         Container = drawer,
                         Item = (SearchableItem)drawer.ItemOwner.RootItem,
-                        Label = cabinets.Count > 1 ? $"CABINET {c + 1}, DRAWER {d + 1}" : $"DRAWER {d + 1}",
+                        CabinetIndex = c,
+                        DrawerIndex = d,
                         IsOpened = drawer == opened
                     });
                 }
@@ -198,6 +224,20 @@ namespace CabinetLooter
             }
         }
 
+        /// <summary>
+        /// From the SearchableView.UpdateSearchState postfix. Vanilla re-shows the overlay on every
+        /// change of the opened drawer's search state; hide it again while the cabinet is up.
+        /// </summary>
+        public static void SearchStateUpdated(SearchableView view)
+        {
+            CabinetSession current = _current;
+            if (current != null && current._searchableView == view)
+            {
+                HideOverlay(view);
+                current.ApplyTopBar();
+            }
+        }
+
         public static void TickCurrent()
         {
             CabinetSession current = _current;
@@ -227,40 +267,78 @@ namespace CabinetLooter
                 entry.Started = false;
                 entry.WasSearching = false;
                 entry.GridsShown = false;
-                entry.HeadingText = null;
             }
 
+            _chainStopped = false;
             _panel = panel;
+            _searchableView = panel.GetComponent<SearchableView>();
+            if (_searchableView != null && _searchableView._searchButton != null)
+            {
+                _unsubscribeSearchButton = _searchableView._searchButton.OnSearchStatusChanged.Subscribe(SearchButtonToggled);
+            }
             _inventoryController = PanelInventoryControllerRef(panel);
             _searcher = _inventoryController?.SearchController as IPlayerSearchController;
             _filterPanel = panel._filterPanel;
 
             SearchableItemView view = panel._simplePanel;
             Transform content = view._gridsContainer;
-            // The other drawers' contexts are made the way the screen made the opened drawer's.
-            // In raid the screen's own context is an EmptyItemContext, whose CreateChild returns
-            // a DefaultItemContext with no Source; then the same constructor is used directly.
-            ItemContext screenContext = openedContext.Source;
+            _content = content;
             if (_searcher == null || content == null)
             {
                 throw new InvalidOperationException(
                     $"panel not as expected: searcher {_searcher != null}, content {content != null}");
             }
 
+            // The other drawers' contexts are made the way the screen made the opened drawer's.
+            // In raid the screen's own context is an EmptyItemContext, whose CreateChild returns
+            // a DefaultItemContext with no Source; then the same constructor is used directly.
+            ItemContext screenContext = openedContext.Source;
+
+            // One row per cabinet, its drawers side by side, so a whole cabinet (and a cluster of
+            // up to four) is visible without scrolling. Columns share the visible width of the
+            // scroll area (Content's parent): four 2x2 drawers need 126 px each, and the panel
+            // is about 630 px wide.
+            float available = content.parent is RectTransform viewport ? viewport.rect.width - 8f : 0f;
+            if (available < 300f)
+            {
+                available = 600f;
+            }
+            int perRow = Math.Max(1, _display.Max(e => e.DrawerIndex) + 1);
+            float columnWidth = Mathf.Max(MinColumnWidth, Mathf.Floor((available - ColumnSpacing * (perRow - 1)) / perRow));
+
             TextMeshProUGUI fontSource = panel._containerName;
             int index = 0;
-            foreach (Entry entry in _display)
+            Transform row = null;
+            for (int i = 0; i < _display.Count; i++)
             {
-                entry.Heading = CreateHeading(content, fontSource, entry);
-                entry.Heading.transform.SetSiblingIndex(index++);
+                Entry entry = _display[i];
+                if (entry.DrawerIndex == 0)
+                {
+                    if (i > 0)
+                    {
+                        AddDecoration(DrawerHeading.CreateSpacer(content, 10f), ref index);
+                    }
+                    if (_cabinetCount > 1)
+                    {
+                        AddDecoration(DrawerHeading.CreateTitle(content, fontSource, available, "CABINET " + (entry.CabinetIndex + 1)), ref index);
+                    }
+                    GameObject rowObject = DrawerHeading.CreateRow(content, ColumnSpacing);
+                    AddDecoration(rowObject, ref index);
+                    row = rowObject.transform;
+                }
+
+                Transform column = DrawerHeading.CreateColumn(row, columnWidth).transform;
+                entry.Heading = DrawerHeading.Create(column, fontSource, columnWidth, entry.IsOpened, () => HeadingClicked(entry));
 
                 if (entry.IsOpened)
                 {
-                    // Vanilla's own grid view for the opened drawer; only moved into place.
-                    ContainedGridsView openedGrids = ContainedGridsViewRef(view);
-                    if (openedGrids != null)
+                    // Vanilla's own grid view for the opened drawer, moved into its column. It is
+                    // handed back to Content on Detach, before the column is destroyed, so vanilla
+                    // still owns and disposes it.
+                    _openedGrids = ContainedGridsViewRef(view);
+                    if (_openedGrids != null)
                     {
-                        openedGrids.transform.SetSiblingIndex(index++);
+                        _openedGrids.transform.SetParent(column, false);
                     }
                     continue;
                 }
@@ -275,44 +353,51 @@ namespace CabinetLooter
                 if (grids != null)
                 {
                     grids.gameObject.SetActive(false);
-                    grids.transform.SetParent(content, false);
-                    grids.transform.SetSiblingIndex(index++);
+                    grids.transform.SetParent(column, false);
                     entry.Grids = grids;
                 }
             }
 
-            CabinetLooterPlugin.Debug($"Showing {_display.Count} drawers from {_cabinetCount} cabinet(s).");
+            // The scroll wheel reaches the scroll area only through whatever UI element the mouse is
+            // over. Vanilla's single grid fills the panel, so that is always something; here the
+            // space beside the 2x2 grids is empty and the wheel did nothing over it. An invisible
+            // full-size target behind everything gives the wheel something to land on there; it
+            // handles no events itself, so they bubble up to the scroll area.
+            GameObject catcher = DrawerHeading.CreateScrollCatcher(content);
+            catcher.transform.SetAsFirstSibling();
+            _decorations.Add(catcher);
+
+            if (_searchableView != null)
+            {
+                HideOverlay(_searchableView);
+            }
+
+            CabinetLooterPlugin.Debug($"Showing {_display.Count} drawers from {_cabinetCount} cabinet(s), {perRow} to a row, columns {columnWidth:F0} wide.");
+            foreach (Entry entry in _display)
+            {
+                // What the drawer actually holds, straight from the item, whatever the panel shows.
+                List<Item> items = entry.Item.GetFirstLevelItems().ToList();
+                CabinetLooterPlugin.Debug($"  {entry.LogName}{(entry.IsOpened ? " (opened)" : string.Empty)}: "
+                                          + $"{items.Count} item(s) [{string.Join(", ", items.Select(i => i.TemplateId.ToString()))}], "
+                                          + $"searched {_searcher.IsSearched(entry.Item)}, unknown items {_searcher.ContainsUnknownItems(entry.Item)}");
+            }
+
+            _layoutDumpAt = CabinetLooterPlugin.DebugLogging.Value ? Time.unscaledTime + 3f : 0f;
             Tick();
         }
 
-        private TextMeshProUGUI CreateHeading(Transform content, TextMeshProUGUI fontSource, Entry entry)
+        private void AddDecoration(GameObject decoration, ref int index)
         {
-            var go = new GameObject("CabinetLooter Heading", typeof(RectTransform));
-            go.transform.SetParent(content, false);
-            ((RectTransform)go.transform).sizeDelta = new Vector2(320f, 24f);
+            decoration.transform.SetSiblingIndex(index++);
+            _decorations.Add(decoration);
+        }
 
-            LayoutElement layout = go.AddComponent<LayoutElement>();
-            layout.minHeight = 24f;
-            layout.preferredHeight = 24f;
-
-            TextMeshProUGUI text = go.AddComponent<TextMeshProUGUI>();
-            if (fontSource != null)
+        private static void HideOverlay(SearchableView view)
+        {
+            if (view._unsearchedPanel != null && view._unsearchedPanel.gameObject.activeSelf)
             {
-                text.font = fontSource.font;
-                text.fontSharedMaterial = fontSource.fontSharedMaterial;
-                text.color = fontSource.color;
+                view._unsearchedPanel.gameObject.SetActive(false);
             }
-            text.fontSize = 15f;
-            text.alignment = TextAlignmentOptions.BottomLeft;
-            text.enableWordWrapping = false;
-            text.overflowMode = TextOverflowModes.Overflow;
-            text.raycastTarget = true;
-
-            Button button = go.AddComponent<Button>();
-            button.targetGraphic = text;
-            button.transition = Selectable.Transition.None;
-            button.onClick.AddListener(() => HeadingClicked(entry));
-            return text;
         }
 
         private void Detach()
@@ -321,6 +406,17 @@ namespace CabinetLooter
             {
                 _current = null;
             }
+
+            _unsubscribeSearchButton?.Invoke();
+            _unsubscribeSearchButton = null;
+
+            // Vanilla's grid view goes back where vanilla put it before our rows are destroyed,
+            // or it would be destroyed with them under vanilla's feet.
+            if (_openedGrids != null && _content != null)
+            {
+                _openedGrids.transform.SetParent(_content, false);
+            }
+            _openedGrids = null;
 
             foreach (Entry entry in _display)
             {
@@ -340,24 +436,36 @@ namespace CabinetLooter
                             entry.Grids.Close();
                         }
                         UnityEngine.Object.Destroy(entry.Grids.gameObject);
-                        entry.Grids = null;
                     }
+                    entry.Grids = null;
                     entry.Context?.Dispose();
                     entry.RawContext?.Dispose();
                     entry.Context = null;
                     entry.RawContext = null;
-                    if (entry.Heading != null)
+                    if (entry.Heading != null && entry.Heading.Root != null)
                     {
-                        UnityEngine.Object.Destroy(entry.Heading.gameObject);
-                        entry.Heading = null;
+                        UnityEngine.Object.Destroy(entry.Heading.Root);
                     }
+                    entry.Heading = null;
                 }
                 catch (Exception e)
                 {
-                    CabinetLooterPlugin.Log.LogError("Could not tidy up drawer " + entry.Label + ": " + e);
+                    CabinetLooterPlugin.Log.LogError("Could not tidy up " + entry.LogName + ": " + e);
                 }
             }
+
+            foreach (GameObject decoration in _decorations)
+            {
+                if (decoration != null)
+                {
+                    UnityEngine.Object.Destroy(decoration);
+                }
+            }
+            _decorations.Clear();
+
+            // The overlay is not restored here: vanilla recomputes it on the next showing.
             _panel = null;
+            _searchableView = null;
         }
 
         // ------------------------------------------------------------------ searching
@@ -391,7 +499,7 @@ namespace CabinetLooter
                         // The search ended with items still hidden: the player pressed stop, or it
                         // failed. Either way, do not start it again by ourselves.
                         entry.Stopped = true;
-                        CabinetLooterPlugin.Debug(entry.Label + " stopped before it finished.");
+                        CabinetLooterPlugin.Debug(entry.LogName + " stopped before it finished.");
                     }
                 }
 
@@ -404,7 +512,13 @@ namespace CabinetLooter
                 UpdateHeading(entry, searching);
             }
 
-            if (CabinetLooterPlugin.AutoSearch.Value && _searcher.CanSearch && _searcher.CanStartNewSearchOperation())
+            if (_layoutDumpAt > 0f && Time.unscaledTime >= _layoutDumpAt)
+            {
+                _layoutDumpAt = 0f;
+                DumpLayout();
+            }
+
+            if (CabinetLooterPlugin.AutoSearch.Value && !_chainStopped && CanStartSearch())
             {
                 Entry next = _searchOrder.FirstOrDefault(e => !e.Started && !e.Stopped && !IsSearching(e) && NeedsSearch(e));
                 if (next != null)
@@ -414,9 +528,171 @@ namespace CabinetLooter
             }
         }
 
+        /// <summary>
+        /// Debug only, once per showing, a few seconds in: what Content's layout does and where
+        /// every child ended up. Written so a panel that looks empty can be told apart from
+        /// drawers that are empty: items listed at Build with grids here sized 0 or off screen
+        /// is a layout fault, not missing loot.
+        /// </summary>
+        private void DumpLayout()
+        {
+            if (_content == null)
+            {
+                return;
+            }
+            var content = (RectTransform)_content;
+            var group = _content.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            var fitter = _content.GetComponent<UnityEngine.UI.ContentSizeFitter>();
+            CabinetLooterPlugin.Debug($"Layout: Content size {content.rect.size}, pivot {content.pivot}, anchored {content.anchoredPosition}; "
+                                      + (group != null
+                                          ? $"group controls width {group.childControlWidth} height {group.childControlHeight}, expands width {group.childForceExpandWidth} height {group.childForceExpandHeight}, spacing {group.spacing}; "
+                                          : "no VerticalLayoutGroup; ")
+                                      + (fitter != null ? $"fitter {fitter.horizontalFit}/{fitter.verticalFit}" : "no ContentSizeFitter"));
+            if (_content.parent is RectTransform viewport)
+            {
+                CabinetLooterPlugin.Debug($"Layout: viewport {viewport.name} size {viewport.rect.size}");
+            }
+            DumpChildren(_content, "  ", 3);
+        }
+
+        private static void DumpChildren(Transform parent, string indent, int depth)
+        {
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                var child = (RectTransform)parent.GetChild(i);
+                CabinetLooterPlugin.Debug($"Layout: {indent}[{i}] {child.name} active {child.gameObject.activeSelf} size {child.rect.size} at {child.anchoredPosition}");
+                if (depth > 1 && child.name.StartsWith("CabinetLooter"))
+                {
+                    DumpChildren(child, indent + "  ", depth - 1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Keeps the top bar's "SEARCHING", X and timer up for whichever drawer of the cabinet is
+        /// being searched. Vanilla's bar only ever follows the opened drawer, so it vanished as soon
+        /// as that one finished while the others were still being searched. Runs after every
+        /// vanilla refresh of the bar (it refreshes on every search starting or ending); when the
+        /// opened drawer itself is searching, or nothing is, vanilla's own state stands.
+        /// </summary>
+        private void ApplyTopBar()
+        {
+            if (_searchableView == null || _searcher == null || _panel == null)
+            {
+                return;
+            }
+
+            SearchContentOperation operation = null;
+            Entry active = null;
+            foreach (Entry entry in _searchOrder)
+            {
+                operation = _searcher.SearchOperations.FirstOrDefault(op => op.Item == entry.Item);
+                if (operation != null)
+                {
+                    active = entry;
+                    break;
+                }
+            }
+            if (active != null && active.IsOpened)
+            {
+                return;
+            }
+
+            DateTime startTime;
+            if (active != null)
+            {
+                startTime = operation.StartTime;
+            }
+            else if (ChainHasNext())
+            {
+                // Between two drawers: one search has ended and the chain starts the next on
+                // its next tick. Keep the bar up through that switch, timer at zero.
+                startTime = DateTimeExtensions.UtcNow;
+            }
+            else
+            {
+                return;
+            }
+
+            // The same three calls, in the same order, that vanilla makes for a running search.
+            SearchButton button = _searchableView._searchButton;
+            if (button != null)
+            {
+                button.SetEnabled(true);
+                button.gameObject.SetActive(true);
+                button.SetSearchStatus(true);
+            }
+            if (_searchableView._searchTimer != null)
+            {
+                _searchableView._searchTimer.Show(startTime);
+            }
+        }
+
+        /// <summary>
+        /// The chain will start another drawer on its next tick: the same test Tick applies,
+        /// so the bar is never held up for a search that will not come.
+        /// </summary>
+        private bool ChainHasNext()
+        {
+            return CabinetLooterPlugin.AutoSearch.Value
+                   && !_chainStopped
+                   && CanStartSearch()
+                   && _searchOrder.Any(e => !e.Started && !e.Stopped && !IsSearching(e) && NeedsSearch(e));
+        }
+
+        /// <summary>
+        /// The top bar's button or its X. Vanilla's own handler only acts on the opened drawer;
+        /// this one makes X stop the whole cabinet: the running searches and the rest of the chain.
+        /// Pressing SEARCH again lets the chain carry on.
+        /// </summary>
+        private void SearchButtonToggled(bool search)
+        {
+            if (_searcher == null || _panel == null)
+            {
+                return;
+            }
+            if (!search)
+            {
+                _chainStopped = true;
+                foreach (Entry entry in _display)
+                {
+                    if (!entry.IsOpened && IsSearching(entry))
+                    {
+                        entry.Stopped = true;
+                        _searcher.StopSearching(entry.Item.Id);
+                    }
+                }
+                CabinetLooterPlugin.Debug("Search stopped from the top bar; no more automatic searches this showing.");
+            }
+            else
+            {
+                _chainStopped = false;
+                foreach (Entry entry in _display)
+                {
+                    entry.Stopped = false;
+                    entry.Started = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A search can start: the searcher has a free slot, and the player is alive. A search
+        /// operation yields a frame before it runs, so one started in the frame the player dies
+        /// would run against a disposed player.
+        /// </summary>
+        private bool CanStartSearch()
+        {
+            if (!_searcher.CanSearch || !_searcher.CanStartNewSearchOperation())
+            {
+                return false;
+            }
+            Player player = (_inventoryController as Player.PlayerInventoryController)?.Player;
+            return player == null || (player.HealthController != null && player.HealthController.IsAlive);
+        }
+
         private void HeadingClicked(Entry entry)
         {
-            if (_searcher == null || !_searcher.CanSearch)
+            if (_searcher == null || _panel == null)
             {
                 return;
             }
@@ -425,7 +701,7 @@ namespace CabinetLooter
                 entry.Stopped = true;
                 _searcher.StopSearching(entry.Item.Id);
             }
-            else if (NeedsSearch(entry) && _searcher.CanStartNewSearchOperation())
+            else if (NeedsSearch(entry) && CanStartSearch())
             {
                 entry.Stopped = false;
                 StartSearch(entry);
@@ -436,7 +712,7 @@ namespace CabinetLooter
         {
             entry.Started = true;
             entry.WasSearching = true;
-            CabinetLooterPlugin.Debug("Searching " + entry.Label + " (" + entry.Container.Id + ").");
+            CabinetLooterPlugin.Debug("Searching " + entry.LogName + " (" + entry.Container.Id + ").");
             _searcher.SearchContents(entry.Item);
         }
 
@@ -465,35 +741,26 @@ namespace CabinetLooter
                 return;
             }
 
-            string state;
             if (searching)
             {
-                state = "SEARCHING...";
+                entry.Heading.Set(entry.Label, "SEARCHING", DrawerHeading.SearchingColor);
             }
             else if (!_searcher.IsSearched(entry.Item))
             {
-                state = "NOT SEARCHED - CLICK TO SEARCH";
+                entry.Heading.Set(entry.Label, "NOT SEARCHED", DrawerHeading.NotSearchedColor);
             }
             else if (_searcher.ContainsUnknownItems(entry.Item))
             {
-                state = "PARTLY SEARCHED - CLICK TO RESUME";
+                entry.Heading.Set(entry.Label, "PARTLY SEARCHED", DrawerHeading.PartlyColor);
             }
             else if (!entry.Item.GetFirstLevelItems().Any())
             {
-                state = "EMPTY";
+                entry.Heading.Set(entry.Label, "EMPTY", DrawerHeading.EmptyColor);
             }
             else
             {
-                state = null;
-            }
-
-            string text = entry.Label
-                          + (entry.IsOpened ? " (OPENED)" : string.Empty)
-                          + (state != null ? "  -  " + state : string.Empty);
-            if (text != entry.HeadingText)
-            {
-                entry.HeadingText = text;
-                entry.Heading.text = text;
+                int count = entry.Item.GetFirstLevelItems().Count();
+                entry.Heading.Set(entry.Label, count == 1 ? "1 ITEM" : count + " ITEMS", DrawerHeading.FoundColor);
             }
         }
     }

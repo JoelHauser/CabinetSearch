@@ -8,13 +8,14 @@ using EFT.InventoryLogic;
 using EFT.Quests;
 using EFT.Trading;
 using EFT.UI;
+using EFT.UI.DragAndDrop;
 using EFT.UI.Insurance;
 using HarmonyLib;
 
 namespace CabinetLooter
 {
     /// <summary>
-    /// Four hooks, each on the one place in the client where its job happens:
+    /// Five hooks, each on the one place in the client where its job happens:
     ///
     /// 1. <see cref="InteractionContextHelper.OnContainerOpen"/>, which every container's
     ///    Search/Open goes through, is where the cabinet is worked out.
@@ -23,6 +24,8 @@ namespace CabinetLooter
     /// 3. <see cref="SimpleStashPanel.Show"/> is where the opened drawer reaches the screen; the
     ///    other drawers are added beside it.
     /// 4. <see cref="SimpleStashPanel.Close"/> takes them away again.
+    /// 5. <see cref="SearchableView.UpdateSearchState"/> re-shows the "unsearched" overlay over
+    ///    the whole scroll area; it is hidden again while the cabinet is shown.
     ///
     /// Nothing here skips or replaces the game's code; every patch runs alongside it.
     /// </summary>
@@ -62,6 +65,10 @@ namespace CabinetLooter
             harmony.Patch(
                 Require(AccessTools.DeclaredMethod(typeof(SimpleStashPanel), nameof(SimpleStashPanel.Close), Type.EmptyTypes)),
                 prefix: new HarmonyMethod(typeof(Patches), nameof(ClosePrefix)));
+
+            harmony.Patch(
+                Require(AccessTools.DeclaredMethod(typeof(SearchableView), nameof(SearchableView.UpdateSearchState), Type.EmptyTypes)),
+                postfix: new HarmonyMethod(typeof(Patches), nameof(UpdateSearchStatePostfix)));
         }
 
         private static MethodInfo Require(MethodInfo method)
@@ -107,6 +114,18 @@ namespace CabinetLooter
         private static void ShowPostfix(SimpleStashPanel __instance, CompoundItem item, ItemContext itemContext)
         {
             CabinetSession.Attach(__instance, item, itemContext);
+        }
+
+        private static void UpdateSearchStatePostfix(SearchableView __instance)
+        {
+            try
+            {
+                CabinetSession.SearchStateUpdated(__instance);
+            }
+            catch (Exception e)
+            {
+                CabinetLooterPlugin.Log.LogError("Could not hide the unsearched overlay: " + e);
+            }
         }
 
         private static void ClosePrefix(SimpleStashPanel __instance)
