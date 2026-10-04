@@ -7,7 +7,7 @@ called Cabinet Looter, the repo CabinetSearch).
 
 ## This is the `backport-4.0.x` branch
 
-Same code as main 1.0.0 (1cbdb9e), rebuilt for SPT 4.0.x (EFT 0.16.9.4008), whose
+Same code as main 1.0.0 (1cbdb9e), released as **0.5.0** (tag v0.5.0, 2026-10-04), rebuilt for SPT 4.0.x (EFT 0.16.9.4008), whose
 Assembly-CSharp is still partly obfuscated. Build with `scripts\pack.ps1 -SPTPath H:\SPT2026`;
 the zip is `CabinetLooter-<ver>-SPT4.0.x.zip`. The mod references no spt-* assembly, so SPT's
 plugin version gate does not apply. To carry a fix over from main, cherry-pick it, then apply
@@ -120,7 +120,7 @@ raid yet. The README and mod page deliberately make no Inventory Walker claim un
 
 ## What the next raid test has to look at
 
-1. `BepInEx\LogOutput.log` has `Cabinet Looter 1.0.0 loaded.` If instead it says the patches
+1. `BepInEx\LogOutput.log` has `Cabinet Looter 0.5.0 loaded.` (1.0.0 on main) If instead it says the patches
    could not be applied, a target signature has changed.
 2. Turn on **Log cabinet details** (F12). Opening a drawer should log `Opened card_file_box_0N ...`
    and `Showing N drawers from 1 cabinet(s).` No `Showing` line means the panel attach failed or
