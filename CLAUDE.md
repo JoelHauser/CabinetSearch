@@ -5,6 +5,38 @@ searches them one after another. Optional cluster mode adds the cabinets standin
 Client only, one BepInEx plugin. Repo https://github.com/JoelHauser/CabinetSearch.git (the mod is
 called Cabinet Looter, the repo CabinetSearch).
 
+## This is the `backport-4.0.x` branch
+
+Same code as main 1.0.0 (1cbdb9e), rebuilt for SPT 4.0.x (EFT 0.16.9.4008), whose
+Assembly-CSharp is still partly obfuscated. Build with `scripts\pack.ps1 -SPTPath H:\SPT2026`;
+the zip is `CabinetLooter-<ver>-SPT4.0.x.zip`. The mod references no spt-* assembly, so SPT's
+plugin version gate does not apply. To carry a fix over from main, cherry-pick it, then apply
+this table to whatever it touches. Each mapping was confirmed against the 4.0.x client (caller
+bodies line for line, unique parameter signature, or matching IL), not guessed from names.
+
+| 4.1.x (main) | 4.0.x | how confirmed |
+|---|---|---|
+| `ItemContext` / `.Source` | `ItemContextAbstractClass` / property `.ItemContextAbstractClass` | SimpleStashPanel.Show signature; Source getter body |
+| `InventorySelectableItemContext` | `GClass3458` | SimpleStashPanel.Show body, same `CreateFromDefaultContext` |
+| `DefaultItemContext` | `GClass3453` | subclass list; `GClass3450` (EmptyItemContext) CreateChild news it |
+| `SearchableItem` | `SearchableItemItemClass` | declaration line for line |
+| `SortingTable`, `ItemController` | `SortingTableItemClass`, `TraderControllerClass` | Show / Configure signatures |
+| `InteractionContextHelper.OnContainerOpen` | `GetActionsClass.smethod_22` | only static method with that signature, same param names |
+| `ItemUiContext.Configure` args `IEftSession, InsuranceCompany, Trader, QuestController` | `ISession, InsuranceCompanyClass, TraderClass, AbstractQuestControllerClass` | the 12-arg overload |
+| `ItemUiContext._rightPanelItem` | `compoundItem_0` | Configure stores `rightPanelItems` at IL_0079 in both |
+| `SearchableView.UpdateSearchState` | `method_2` | same `SearchOperations.ItemsChanged` subscription |
+| `SearchableItemView._containedGridsView` | `containedGridsView_0` | field diff |
+| `SimpleStashPanel._inventoryController` | `inventoryController_0` | field diff |
+| `PlayerInventoryController.Player` | `Player_0` | only Player-typed field |
+| `DateTimeExtensions.UtcNow` | `EFTDateTimeClass.UtcNow` | |
+| `LayersMaskController` | `LayerMaskClass` | owner of `HighPolyWithTerrainMask` |
+
+4.1 made the views' `[SerializeField]` fields public; in 4.0 they are private with the same names
+(`_searchButton`, `_searchTimer`, `_unsearchedPanel`, `_filterPanel`, `_simplePanel`,
+`_containerName`, `_gridsContainer`, `_containedGridsTemplate`), so they are read through
+`FieldRefAccess` at the top of `CabinetSession`. Every string name there was checked against the
+4.0.x assembly with Cecil (name and field type). Not yet run in a 4.0.x raid.
+
 ## State as it stands
 
 **0.1.0 ran on Reserve on 2026-10-03 and worked** (LogOutput.log): cabinets found, drawers

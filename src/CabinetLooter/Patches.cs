@@ -32,12 +32,12 @@ namespace CabinetLooter
     internal static class Patches
     {
         private static readonly AccessTools.FieldRef<ItemUiContext, CompoundItem[]> RightPanelItemsRef =
-            AccessTools.FieldRefAccess<ItemUiContext, CompoundItem[]>("_rightPanelItem");
+            AccessTools.FieldRefAccess<ItemUiContext, CompoundItem[]>("compoundItem_0");
 
         public static void Apply(Harmony harmony)
         {
             harmony.Patch(
-                Require(AccessTools.Method(typeof(InteractionContextHelper), nameof(InteractionContextHelper.OnContainerOpen),
+                Require(AccessTools.Method(typeof(GetActionsClass), nameof(GetActionsClass.smethod_22),
                     new[] { typeof(GamePlayerOwner), typeof(Action), typeof(LootableContainer), typeof(float) })),
                 prefix: new HarmonyMethod(typeof(Patches), nameof(OnContainerOpenPrefix)));
 
@@ -46,9 +46,9 @@ namespace CabinetLooter
                 Require(AccessTools.Method(typeof(ItemUiContext), nameof(ItemUiContext.Configure),
                     new[]
                     {
-                        typeof(ItemController), typeof(Profile), typeof(IEftSession), typeof(InsuranceCompany),
-                        typeof(Trader), typeof(IHealthController), typeof(CompoundItem[]), typeof(EItemUiContextType),
-                        typeof(ECursorResult), typeof(CompoundItem), typeof(InventoryEquipment), typeof(QuestController)
+                        typeof(TraderControllerClass), typeof(Profile), typeof(ISession), typeof(InsuranceCompanyClass),
+                        typeof(TraderClass), typeof(IHealthController), typeof(CompoundItem[]), typeof(EItemUiContextType),
+                        typeof(ECursorResult), typeof(CompoundItem), typeof(InventoryEquipment), typeof(AbstractQuestControllerClass)
                     })),
                 postfix: new HarmonyMethod(typeof(Patches), nameof(ConfigurePostfix)));
 
@@ -56,8 +56,8 @@ namespace CabinetLooter
                 Require(AccessTools.Method(typeof(SimpleStashPanel), nameof(SimpleStashPanel.Show),
                     new[]
                     {
-                        typeof(CompoundItem), typeof(InventoryController), typeof(ItemContext), typeof(bool),
-                        typeof(SortingTable), typeof(SimpleStashPanel.EStashSearchAvailability),
+                        typeof(CompoundItem), typeof(InventoryController), typeof(ItemContextAbstractClass), typeof(bool),
+                        typeof(SortingTableItemClass), typeof(SimpleStashPanel.EStashSearchAvailability),
                         typeof(InventoryController), typeof(ItemsPanel.EItemsTab)
                     })),
                 postfix: new HarmonyMethod(typeof(Patches), nameof(ShowPostfix)));
@@ -67,7 +67,7 @@ namespace CabinetLooter
                 prefix: new HarmonyMethod(typeof(Patches), nameof(ClosePrefix)));
 
             harmony.Patch(
-                Require(AccessTools.DeclaredMethod(typeof(SearchableView), nameof(SearchableView.UpdateSearchState), Type.EmptyTypes)),
+                Require(AccessTools.DeclaredMethod(typeof(SearchableView), nameof(SearchableView.method_2), Type.EmptyTypes)),
                 postfix: new HarmonyMethod(typeof(Patches), nameof(UpdateSearchStatePostfix)));
         }
 
@@ -111,7 +111,7 @@ namespace CabinetLooter
             }
         }
 
-        private static void ShowPostfix(SimpleStashPanel __instance, CompoundItem item, ItemContext itemContext)
+        private static void ShowPostfix(SimpleStashPanel __instance, CompoundItem item, ItemContextAbstractClass itemContext)
         {
             CabinetSession.Attach(__instance, item, itemContext);
         }

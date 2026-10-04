@@ -35,15 +35,15 @@ namespace CabinetLooter
         private sealed class Entry
         {
             public LootableContainer Container;
-            public SearchableItem Item;
+            public SearchableItemItemClass Item;
             public int CabinetIndex;
             public int DrawerIndex;
             public bool IsOpened;
 
             public DrawerHeading Heading;
             public ContainedGridsView Grids;
-            public ItemContext RawContext;
-            public InventorySelectableItemContext Context;
+            public ItemContextAbstractClass RawContext;
+            public GClass3458 Context;
             public bool GridsShown;
 
             /// <summary>Seen searching since the last tick; a search that then vanishes unfinished was stopped.</summary>
@@ -60,11 +60,38 @@ namespace CabinetLooter
             public string LogName => "cabinet " + (CabinetIndex + 1) + " drawer " + (DrawerIndex + 1);
         }
 
+        // 4.0.x names. SPT 4.0's Assembly-CSharp keeps the views' serialized fields private (4.1
+        // made them public) and leaves the plain fields obfuscated, so every one is reached here.
+        // FieldRefAccess throws when the class loads if a name is wrong, so a mismatch fails loudly.
         private static readonly AccessTools.FieldRef<SearchableItemView, ContainedGridsView> ContainedGridsViewRef =
-            AccessTools.FieldRefAccess<SearchableItemView, ContainedGridsView>("_containedGridsView");
+            AccessTools.FieldRefAccess<SearchableItemView, ContainedGridsView>("containedGridsView_0");
+
+        private static readonly AccessTools.FieldRef<SearchableItemView, ContainedGridsView> ContainedGridsTemplateRef =
+            AccessTools.FieldRefAccess<SearchableItemView, ContainedGridsView>("_containedGridsTemplate");
+
+        private static readonly AccessTools.FieldRef<SearchableItemView, Transform> GridsContainerRef =
+            AccessTools.FieldRefAccess<SearchableItemView, Transform>("_gridsContainer");
 
         private static readonly AccessTools.FieldRef<SimpleStashPanel, InventoryController> PanelInventoryControllerRef =
-            AccessTools.FieldRefAccess<SimpleStashPanel, InventoryController>("_inventoryController");
+            AccessTools.FieldRefAccess<SimpleStashPanel, InventoryController>("inventoryController_0");
+
+        private static readonly AccessTools.FieldRef<SimpleStashPanel, FilterPanel> PanelFilterRef =
+            AccessTools.FieldRefAccess<SimpleStashPanel, FilterPanel>("_filterPanel");
+
+        private static readonly AccessTools.FieldRef<SimpleStashPanel, SearchableItemView> PanelSimplePanelRef =
+            AccessTools.FieldRefAccess<SimpleStashPanel, SearchableItemView>("_simplePanel");
+
+        private static readonly AccessTools.FieldRef<SimpleStashPanel, TextMeshProUGUI> PanelContainerNameRef =
+            AccessTools.FieldRefAccess<SimpleStashPanel, TextMeshProUGUI>("_containerName");
+
+        private static readonly AccessTools.FieldRef<SearchableView, SearchButton> SearchButtonRef =
+            AccessTools.FieldRefAccess<SearchableView, SearchButton>("_searchButton");
+
+        private static readonly AccessTools.FieldRef<SearchableView, TimerText> SearchTimerRef =
+            AccessTools.FieldRefAccess<SearchableView, TimerText>("_searchTimer");
+
+        private static readonly AccessTools.FieldRef<SearchableView, UnityEngine.UI.Button> UnsearchedPanelRef =
+            AccessTools.FieldRefAccess<SearchableView, UnityEngine.UI.Button>("_unsearchedPanel");
 
         /// <summary>Built when a drawer is opened, waiting for its loot panel.</summary>
         private static CabinetSession _pending;
@@ -110,7 +137,7 @@ namespace CabinetLooter
             _searchOrder.AddRange(display.Where(e => e != opened));
         }
 
-        public SearchableItem OpenedItem => _display.First(e => e.IsOpened).Item;
+        public SearchableItemItemClass OpenedItem => _display.First(e => e.IsOpened).Item;
 
         public CompoundItem[] AllItems => _searchOrder.Select(e => (CompoundItem)e.Item).ToArray();
 
@@ -139,7 +166,7 @@ namespace CabinetLooter
                     display.Add(new Entry
                     {
                         Container = drawer,
-                        Item = (SearchableItem)drawer.ItemOwner.RootItem,
+                        Item = (SearchableItemItemClass)drawer.ItemOwner.RootItem,
                         CabinetIndex = c,
                         DrawerIndex = d,
                         IsOpened = drawer == opened
@@ -187,7 +214,7 @@ namespace CabinetLooter
         }
 
         /// <summary>From the SimpleStashPanel.Show postfix: the opened drawer is now on screen.</summary>
-        public static void Attach(SimpleStashPanel panel, CompoundItem item, ItemContext itemContext)
+        public static void Attach(SimpleStashPanel panel, CompoundItem item, ItemContextAbstractClass itemContext)
         {
             CabinetSession pending = _pending;
             if (pending == null || item != pending.OpenedItem)
@@ -258,7 +285,7 @@ namespace CabinetLooter
 
         // ------------------------------------------------------------------ building the panel
 
-        private void Build(SimpleStashPanel panel, ItemContext openedContext)
+        private void Build(SimpleStashPanel panel, ItemContextAbstractClass openedContext)
         {
             // A re-show (tab switch) starts the chain again: closing the panel interrupted any
             // search, as vanilla's does. Only the player's own stops are kept.
@@ -272,16 +299,16 @@ namespace CabinetLooter
             _chainStopped = false;
             _panel = panel;
             _searchableView = panel.GetComponent<SearchableView>();
-            if (_searchableView != null && _searchableView._searchButton != null)
+            if (_searchableView != null && SearchButtonRef(_searchableView) != null)
             {
-                _unsubscribeSearchButton = _searchableView._searchButton.OnSearchStatusChanged.Subscribe(SearchButtonToggled);
+                _unsubscribeSearchButton = SearchButtonRef(_searchableView).OnSearchStatusChanged.Subscribe(SearchButtonToggled);
             }
             _inventoryController = PanelInventoryControllerRef(panel);
             _searcher = _inventoryController?.SearchController as IPlayerSearchController;
-            _filterPanel = panel._filterPanel;
+            _filterPanel = PanelFilterRef(panel);
 
-            SearchableItemView view = panel._simplePanel;
-            Transform content = view._gridsContainer;
+            SearchableItemView view = PanelSimplePanelRef(panel);
+            Transform content = GridsContainerRef(view);
             _content = content;
             if (_searcher == null || content == null)
             {
@@ -292,7 +319,7 @@ namespace CabinetLooter
             // The other drawers' contexts are made the way the screen made the opened drawer's.
             // In raid the screen's own context is an EmptyItemContext, whose CreateChild returns
             // a DefaultItemContext with no Source; then the same constructor is used directly.
-            ItemContext screenContext = openedContext.Source;
+            ItemContextAbstractClass screenContext = openedContext.ItemContextAbstractClass;
 
             // One row per cabinet, its drawers side by side, so a whole cabinet (and a cluster of
             // up to four) is visible without scrolling. Columns share the visible width of the
@@ -306,7 +333,7 @@ namespace CabinetLooter
             int perRow = Math.Max(1, _display.Max(e => e.DrawerIndex) + 1);
             float columnWidth = Mathf.Max(MinColumnWidth, Mathf.Floor((available - ColumnSpacing * (perRow - 1)) / perRow));
 
-            TextMeshProUGUI fontSource = panel._containerName;
+            TextMeshProUGUI fontSource = PanelContainerNameRef(panel);
             int index = 0;
             Transform row = null;
             for (int i = 0; i < _display.Count; i++)
@@ -345,11 +372,11 @@ namespace CabinetLooter
 
                 entry.RawContext = screenContext != null
                     ? screenContext.CreateChild(entry.Item)
-                    : new DefaultItemContext(entry.Item, openedContext.ViewType);
-                entry.Context = (entry.RawContext as InventorySelectableItemContext)
-                                ?? InventorySelectableItemContext.CreateFromDefaultContext(entry.RawContext);
+                    : new GClass3453(entry.Item, openedContext.ViewType);
+                entry.Context = (entry.RawContext as GClass3458)
+                                ?? GClass3458.CreateFromDefaultContext(entry.RawContext);
 
-                ContainedGridsView grids = ContainedGridsView.CreateGrids(entry.Item, view._containedGridsTemplate);
+                ContainedGridsView grids = ContainedGridsView.CreateGrids(entry.Item, ContainedGridsTemplateRef(view));
                 if (grids != null)
                 {
                     grids.gameObject.SetActive(false);
@@ -394,9 +421,9 @@ namespace CabinetLooter
 
         private static void HideOverlay(SearchableView view)
         {
-            if (view._unsearchedPanel != null && view._unsearchedPanel.gameObject.activeSelf)
+            if (UnsearchedPanelRef(view) != null && UnsearchedPanelRef(view).gameObject.activeSelf)
             {
-                view._unsearchedPanel.gameObject.SetActive(false);
+                UnsearchedPanelRef(view).gameObject.SetActive(false);
             }
         }
 
@@ -607,7 +634,7 @@ namespace CabinetLooter
             {
                 // Between two drawers: one search has ended and the chain starts the next on
                 // its next tick. Keep the bar up through that switch, timer at zero.
-                startTime = DateTimeExtensions.UtcNow;
+                startTime = EFTDateTimeClass.UtcNow;
             }
             else
             {
@@ -615,16 +642,16 @@ namespace CabinetLooter
             }
 
             // The same three calls, in the same order, that vanilla makes for a running search.
-            SearchButton button = _searchableView._searchButton;
+            SearchButton button = SearchButtonRef(_searchableView);
             if (button != null)
             {
                 button.SetEnabled(true);
                 button.gameObject.SetActive(true);
                 button.SetSearchStatus(true);
             }
-            if (_searchableView._searchTimer != null)
+            if (SearchTimerRef(_searchableView) != null)
             {
-                _searchableView._searchTimer.Show(startTime);
+                SearchTimerRef(_searchableView).Show(startTime);
             }
         }
 
@@ -686,7 +713,7 @@ namespace CabinetLooter
             {
                 return false;
             }
-            Player player = (_inventoryController as Player.PlayerInventoryController)?.Player;
+            Player player = (_inventoryController as Player.PlayerInventoryController)?.Player_0;
             return player == null || (player.HealthController != null && player.HealthController.IsAlive);
         }
 

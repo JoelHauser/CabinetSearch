@@ -38,7 +38,7 @@ up side by side, and they get searched one after another.
 
 Unzip over your SPT folder. Client only, no server part. Settings are in the F12 menu.
 
-For SPT 4.1.x.
+For SPT 4.0.x (backport). SPT 4.1.x players: use the main release.
 
 ## Good to know
 

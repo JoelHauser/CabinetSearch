@@ -60,7 +60,8 @@ $entries = [ordered]@{
 
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-$zip = Join-Path $dist "CabinetLooter-$version.zip"
+# Backport branch: the suffix keeps this zip apart from the 4.1.x release of the same version.
+$zip = Join-Path $dist "CabinetLooter-$version-SPT4.0.x.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 
 $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)

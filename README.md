@@ -39,7 +39,8 @@ Press F12 in game (BepInEx Configuration Manager).
 ## Install
 
 Unzip over your SPT folder so `CabinetLooter.dll` lands in `BepInEx\plugins`. Client only, no
-server part. Built for SPT 4.1.x.
+server part. **This is the SPT 4.0.x backport** (branch `backport-4.0.x`); for SPT 4.1.x use the
+main release.
 
 ## Good to know
 
@@ -54,8 +55,8 @@ server part. Built for SPT 4.1.x.
 ## Building
 
 ```
-scripts\pack.ps1 -SPTPath H:\SPT4.1.X            # build and zip into dist\
-scripts\pack.ps1 -SPTPath H:\SPT4.1.X -Install   # also copy into BepInEx\plugins
+scripts\pack.ps1 -SPTPath H:\SPT2026            # build and zip into dist\ (needs a 4.0.x install)
+scripts\pack.ps1 -SPTPath H:\SPT2026 -Install   # also copy into BepInEx\plugins
 ```
 
 Run from PowerShell. Compiles against the SPT-patched `Assembly-CSharp.dll`, so start the game

@@ -68,7 +68,7 @@ namespace CabinetLooter
         {
             return container != null
                    && container.ItemOwner != null
-                   && container.ItemOwner.RootItem is SearchableItem
+                   && container.ItemOwner.RootItem is SearchableItemItemClass
                    && container.gameObject.activeInHierarchy
                    && container.DoorState != EDoorState.Locked;
         }
@@ -204,7 +204,7 @@ namespace CabinetLooter
 
             int count = Physics.RaycastNonAlloc(
                 from, direction / distance, RayBuffer, distance,
-                LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore);
+                LayerMaskClass.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore);
             for (int i = 0; i < count; i++)
             {
                 Transform hit = RayBuffer[i].transform;
