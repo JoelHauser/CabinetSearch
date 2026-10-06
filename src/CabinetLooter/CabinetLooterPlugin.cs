@@ -22,7 +22,7 @@ namespace CabinetLooter
         public const string PluginName = "Cabinet Looter";
 
         /// <summary>Must match the csproj's Version. Two places, and they have to agree.</summary>
-        public const string PluginVersion = "0.5.0";
+        public const string PluginVersion = "0.5.1";
 
         internal static ManualLogSource Log;
 

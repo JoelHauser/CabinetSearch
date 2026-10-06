@@ -125,6 +125,9 @@ namespace CabinetLooter
         private const float ColumnSpacing = 8f;
         private const float MinColumnWidth = 132f;
 
+        /// <summary>The last heading shift applied by AlignHeadings, for logging changes only.</summary>
+        private float _headingShift;
+
         /// <summary>When the one-shot layout dump is due (debug logging only); 0 once written.</summary>
         private float _layoutDumpAt;
 
@@ -539,6 +542,8 @@ namespace CabinetLooter
                 UpdateHeading(entry, searching);
             }
 
+            AlignHeadings();
+
             if (_layoutDumpAt > 0f && Time.unscaledTime >= _layoutDumpAt)
             {
                 _layoutDumpAt = 0f;
@@ -553,6 +558,57 @@ namespace CabinetLooter
                     StartSearch(next);
                 }
             }
+        }
+
+        /// <summary>
+        /// Lines every heading's left edge up with its grid's, the way the opened drawer's already
+        /// is. Our grid views are fresh copies of vanilla's template, and inside them the grid sits
+        /// a pixel or two left of where it sits in vanilla's own (already shown) view, so in the
+        /// same column layout their headings stuck out to the right of the grid while the opened
+        /// drawer's did not. Measured rather than hard-coded: the gap depends on the template and
+        /// on the UI scale. Every copy comes from the one template, so one measured gap applies to
+        /// all of them, including drawers whose grid is still hidden.
+        /// </summary>
+        private void AlignHeadings()
+        {
+            Entry opened = _display.FirstOrDefault(e => e.IsOpened);
+            if (opened?.Heading == null || _openedGrids == null || !_openedGrids.gameObject.activeInHierarchy)
+            {
+                return;
+            }
+            RectTransform openedFrame = GridFrame(_openedGrids);
+            Entry sample = _display.FirstOrDefault(e => !e.IsOpened && e.Heading != null && e.Grids != null && e.Grids.gameObject.activeInHierarchy);
+            RectTransform sampleFrame = sample != null ? GridFrame(sample.Grids) : null;
+            if (openedFrame == null || sampleFrame == null)
+            {
+                return;
+            }
+
+            float shift = sample.Heading.LeftEdgeGap(sampleFrame) - opened.Heading.LeftEdgeGap(openedFrame);
+            if (Mathf.Abs(shift) > 20f)
+            {
+                // Not a pixel of drift: some other layout (a rig-style drawer?). Leave it be.
+                return;
+            }
+            if (Mathf.Abs(shift - _headingShift) >= 0.01f)
+            {
+                _headingShift = shift;
+                CabinetLooterPlugin.Debug($"Headings shifted {shift:F2} to line up with their grids.");
+            }
+            foreach (Entry entry in _display)
+            {
+                if (!entry.IsOpened && entry.Heading != null)
+                {
+                    entry.Heading.Shift(shift);
+                }
+            }
+        }
+
+        /// <summary>The first grid inside a grid view: the frame a heading lines up with.</summary>
+        private static RectTransform GridFrame(ContainedGridsView grids)
+        {
+            GridView grid = grids.GetComponentInChildren<GridView>();
+            return grid != null ? (RectTransform)grid.transform : null;
         }
 
         /// <summary>

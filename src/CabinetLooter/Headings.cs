@@ -46,6 +46,7 @@ namespace CabinetLooter
         public const float Height = 32f;
 
         public GameObject Root;
+        private RectTransform _bar;
         private TextMeshProUGUI _label;
         private TextMeshProUGUI _state;
         private string _labelText;
@@ -55,18 +56,28 @@ namespace CabinetLooter
         public static DrawerHeading Create(Transform parent, TextMeshProUGUI fontSource, float width, bool highlighted, Action clicked)
         {
             GameObject root = NewRect("CabinetLooter Heading", parent, width, Height);
+            root.AddComponent<HeadingClick>().Clicked = clicked;
 
-            Image background = root.AddComponent<Image>();
+            // What is drawn sits on a child filling the root, so it can be nudged sideways to line
+            // up with the grid below (see AlignTo) while the layout group keeps placing the root.
+            var bar = new GameObject("Bar", typeof(RectTransform));
+            bar.transform.SetParent(root.transform, false);
+            var barRect = (RectTransform)bar.transform;
+            barRect.anchorMin = Vector2.zero;
+            barRect.anchorMax = Vector2.one;
+            barRect.offsetMin = Vector2.zero;
+            barRect.offsetMax = Vector2.zero;
+
+            Image background = bar.AddComponent<Image>();
             background.color = new Color(1f, 1f, 1f, highlighted ? 0.13f : 0.06f);
             background.raycastTarget = true;
-
-            root.AddComponent<HeadingClick>().Clicked = clicked;
 
             var heading = new DrawerHeading
             {
                 Root = root,
-                _label = NewText("Label", root.transform, fontSource, 12f, TextAlignmentOptions.BottomLeft, 0.5f, 1f),
-                _state = NewText("State", root.transform, fontSource, 10f, TextAlignmentOptions.TopLeft, 0f, 0.5f)
+                _bar = barRect,
+                _label = NewText("Label", bar.transform, fontSource, 12f, TextAlignmentOptions.BottomLeft, 0.5f, 1f),
+                _state = NewText("State", bar.transform, fontSource, 10f, TextAlignmentOptions.TopLeft, 0f, 0.5f)
             };
             heading._label.color = LabelColor;
             return heading;
@@ -104,6 +115,37 @@ namespace CabinetLooter
             layout.minWidth = width;
             layout.preferredWidth = width;
             return go;
+        }
+
+        private static readonly Vector3[] Corners = new Vector3[4];
+
+        /// <summary>
+        /// How far, in the heading's own units, the left edge of <paramref name="target"/> sits to
+        /// the right of the heading's (unshifted) left edge.
+        /// </summary>
+        public float LeftEdgeGap(RectTransform target)
+        {
+            var root = (RectTransform)Root.transform;
+            float scale = root.lossyScale.x;
+            if (target == null || scale <= 0f)
+            {
+                return 0f;
+            }
+            target.GetWorldCorners(Corners);
+            float targetLeft = Corners[0].x;
+            root.GetWorldCorners(Corners);
+            return (targetLeft - Corners[0].x) / scale;
+        }
+
+        /// <summary>Slides the bar sideways by <paramref name="shift"/>, keeping its width.</summary>
+        public void Shift(float shift)
+        {
+            if (Mathf.Abs(_bar.offsetMin.x - shift) < 0.01f)
+            {
+                return;
+            }
+            _bar.offsetMin = new Vector2(shift, 0f);
+            _bar.offsetMax = new Vector2(shift, 0f);
         }
 
         public void Set(string label, string state, Color stateColor)
