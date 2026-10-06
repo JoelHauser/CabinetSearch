@@ -120,21 +120,19 @@ namespace CabinetLooter
         private static readonly Vector3[] Corners = new Vector3[4];
 
         /// <summary>
-        /// How far, in the heading's own units, the left edge of <paramref name="target"/> sits to
-        /// the right of the heading's (unshifted) left edge.
+        /// How far, in the heading's own units, the world-space x <paramref name="worldLeft"/> sits
+        /// to the right of the heading's (unshifted) left edge.
         /// </summary>
-        public float LeftEdgeGap(RectTransform target)
+        public float LeftEdgeGap(float worldLeft)
         {
             var root = (RectTransform)Root.transform;
             float scale = root.lossyScale.x;
-            if (target == null || scale <= 0f)
+            if (scale <= 0f)
             {
                 return 0f;
             }
-            target.GetWorldCorners(Corners);
-            float targetLeft = Corners[0].x;
             root.GetWorldCorners(Corners);
-            return (targetLeft - Corners[0].x) / scale;
+            return (worldLeft - Corners[0].x) / scale;
         }
 
         /// <summary>Slides the bar sideways by <paramref name="shift"/>, keeping its width.</summary>
