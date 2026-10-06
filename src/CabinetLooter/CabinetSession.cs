@@ -10,6 +10,7 @@ using EFT.UI.DragAndDrop;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CabinetLooter
 {
@@ -125,8 +126,11 @@ namespace CabinetLooter
         private const float ColumnSpacing = 8f;
         private const float MinColumnWidth = 132f;
 
-        /// <summary>The last heading shift applied by AlignHeadings, for logging changes only.</summary>
+        /// <summary>How far every heading bar is slid sideways to line up with the grids' frames.</summary>
         private float _headingShift;
+
+        /// <summary>When AlignHeadings next measures.</summary>
+        private float _nextAlignAt;
 
         /// <summary>When the one-shot layout dump is due (debug logging only); 0 once written.</summary>
         private float _layoutDumpAt;
@@ -561,55 +565,80 @@ namespace CabinetLooter
         }
 
         /// <summary>
-        /// Lines every heading's left edge up with its grid's, the way the opened drawer's already
-        /// is. Our grid views are fresh copies of vanilla's template, and inside them the grid sits
-        /// a pixel or two left of where it sits in vanilla's own (already shown) view, so in the
-        /// same column layout their headings stuck out to the right of the grid while the opened
-        /// drawer's did not. Measured rather than hard-coded: the gap depends on the template and
-        /// on the UI scale. Every copy comes from the one template, so one measured gap applies to
-        /// all of them, including drawers whose grid is still hidden.
+        /// Lines every heading's left edge up with the left edge of what is drawn below it. The
+        /// grid view's own box starts exactly at the column's left edge, same as the heading, but
+        /// its frame is drawn a little outside that box, so measured against the box (1.0.1) the
+        /// gap was zero and the frame still stuck out a pixel or two left of the heading. So this
+        /// measures the leftmost thing actually drawn in the grid view. Every grid view comes from
+        /// the one template, so the gap measured on any shown grid applies to every heading,
+        /// including drawers whose grid is still hidden. Measured a few times a second, not every
+        /// frame, as it walks the grid view's graphics.
         /// </summary>
         private void AlignHeadings()
         {
-            Entry opened = _display.FirstOrDefault(e => e.IsOpened);
-            if (opened?.Heading == null || _openedGrids == null || !_openedGrids.gameObject.activeInHierarchy)
+            if (Time.unscaledTime < _nextAlignAt)
             {
                 return;
             }
-            RectTransform openedFrame = GridFrame(_openedGrids);
-            Entry sample = _display.FirstOrDefault(e => !e.IsOpened && e.Heading != null && e.Grids != null && e.Grids.gameObject.activeInHierarchy);
-            RectTransform sampleFrame = sample != null ? GridFrame(sample.Grids) : null;
-            if (openedFrame == null || sampleFrame == null)
-            {
-                return;
-            }
+            _nextAlignAt = Time.unscaledTime + 0.25f;
 
-            float shift = sample.Heading.LeftEdgeGap(sampleFrame) - opened.Heading.LeftEdgeGap(openedFrame);
-            if (Mathf.Abs(shift) > 20f)
-            {
-                // Not a pixel of drift: some other layout (a rig-style drawer?). Leave it be.
-                return;
-            }
-            if (Mathf.Abs(shift - _headingShift) >= 0.01f)
-            {
-                _headingShift = shift;
-                CabinetLooterPlugin.Debug($"Headings shifted {shift:F2} to line up with their grids.");
-            }
             foreach (Entry entry in _display)
             {
-                if (!entry.IsOpened && entry.Heading != null)
+                ContainedGridsView grids = entry.IsOpened ? _openedGrids : entry.Grids;
+                if (entry.Heading == null || grids == null || !grids.gameObject.activeInHierarchy)
                 {
-                    entry.Heading.Shift(shift);
+                    continue;
                 }
+                Graphic leftmost = LeftmostGraphic(grids, out float left);
+                if (leftmost == null)
+                {
+                    continue;
+                }
+                float gap = entry.Heading.LeftEdgeGap(left);
+                if (Mathf.Abs(gap) > 20f)
+                {
+                    // Not a pixel of drift: something other than the plain grid frame. Leave it.
+                    continue;
+                }
+                if (Mathf.Abs(gap - _headingShift) >= 0.01f)
+                {
+                    _headingShift = gap;
+                    CabinetLooterPlugin.Debug($"Headings shifted {gap:F2} to line up with {leftmost.name} ({leftmost.GetType().Name}) of {entry.LogName}.");
+                }
+                break;
+            }
+
+            foreach (Entry entry in _display)
+            {
+                entry.Heading?.Shift(_headingShift);
             }
         }
 
-        /// <summary>The first grid inside a grid view: the frame a heading lines up with.</summary>
-        private static RectTransform GridFrame(ContainedGridsView grids)
+        /// <summary>The leftmost visible graphic inside a grid view, and its left edge in world space.</summary>
+        private static Graphic LeftmostGraphic(ContainedGridsView grids, out float left)
         {
-            GridView grid = grids.GetComponentInChildren<GridView>();
-            return grid != null ? (RectTransform)grid.transform : null;
+            Graphic best = null;
+            left = float.MaxValue;
+            grids.GetComponentsInChildren(false, GraphicsBuffer);
+            foreach (Graphic graphic in GraphicsBuffer)
+            {
+                if (!graphic.enabled || graphic.color.a <= 0.01f || graphic.canvasRenderer.cull)
+                {
+                    continue;
+                }
+                graphic.rectTransform.GetWorldCorners(Corners);
+                if (Corners[0].x < left)
+                {
+                    left = Corners[0].x;
+                    best = graphic;
+                }
+            }
+            GraphicsBuffer.Clear();
+            return best;
         }
+
+        private static readonly List<Graphic> GraphicsBuffer = new List<Graphic>();
+        private static readonly Vector3[] Corners = new Vector3[4];
 
         /// <summary>
         /// Debug only, once per showing, a few seconds in: what Content's layout does and where
