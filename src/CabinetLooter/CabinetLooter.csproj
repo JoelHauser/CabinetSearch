@@ -9,7 +9,7 @@
     <Nullable>disable</Nullable>
 
     <!-- Must match CabinetLooterPlugin.PluginVersion. -->
-    <Version>0.5.3</Version>
+    <Version>0.5.1</Version>
 
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
