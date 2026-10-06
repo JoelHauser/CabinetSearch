@@ -587,7 +587,11 @@ namespace CabinetLooter
             }
         }
 
-        /// <summary>The leftmost visible graphic inside a grid view, and its left edge in world space.</summary>
+        /// <summary>
+        /// The leftmost visible graphic inside a grid view, and where its drawn pixels start in
+        /// world space. Not just its box: the grid's "Border" image is a sprite with a few units
+        /// of transparent margin, and lining up with its box (1.0.2) overshot by that margin.
+        /// </summary>
         private static Graphic LeftmostGraphic(ContainedGridsView grids, out float left)
         {
             Graphic best = null;
@@ -599,15 +603,111 @@ namespace CabinetLooter
                 {
                     continue;
                 }
-                graphic.rectTransform.GetWorldCorners(Corners);
-                if (Corners[0].x < left)
+                RectTransform rect = graphic.rectTransform;
+                rect.GetWorldCorners(Corners);
+                float boxLeft = Corners[0].x;
+                if (boxLeft >= left)
                 {
-                    left = Corners[0].x;
+                    // Drawn pixels never start left of the box, so this one cannot win.
+                    continue;
+                }
+                float drawnLeft = boxLeft + TransparentMargin(graphic) * rect.lossyScale.x;
+                if (drawnLeft < left)
+                {
+                    left = drawnLeft;
                     best = graphic;
                 }
             }
             GraphicsBuffer.Clear();
             return best;
+        }
+
+        /// <summary>
+        /// How far, in the graphic's own units, its first drawn pixels sit inside its box's left
+        /// edge: the sprite's transparent left margin, scaled the way the Image draws it.
+        /// </summary>
+        private static float TransparentMargin(Graphic graphic)
+        {
+            if (!(graphic is Image image) || image.sprite == null)
+            {
+                return 0f;
+            }
+            Sprite sprite = image.sprite;
+            float pixels = SpriteLeftMargin(sprite);
+            if (pixels <= 0f)
+            {
+                return 0f;
+            }
+            bool bordered = (image.type == Image.Type.Sliced || image.type == Image.Type.Tiled) && sprite.border.x >= pixels;
+            float units = bordered
+                ? pixels / Mathf.Max(0.0001f, image.pixelsPerUnit)
+                : pixels * image.rectTransform.rect.width / Mathf.Max(1f, sprite.rect.width);
+            if (CabinetLooterPlugin.DebugLogging.Value && LoggedMargins.Add(sprite))
+            {
+                CabinetLooterPlugin.Debug($"Sprite {sprite.name} of {graphic.name}: {pixels:F0} px transparent on the left, {units:F2} units as drawn ({image.type}).");
+            }
+            return units;
+        }
+
+        private static readonly Dictionary<Sprite, float> SpriteMargins = new Dictionary<Sprite, float>();
+        private static readonly HashSet<Sprite> LoggedMargins = new HashSet<Sprite>();
+
+        /// <summary>
+        /// Pixels from a sprite's left edge to its first clearly drawn column, read across the
+        /// middle row. Game textures are not CPU-readable, so the sprite is copied through a
+        /// temporary render texture once and the result cached.
+        /// </summary>
+        private static float SpriteLeftMargin(Sprite sprite)
+        {
+            if (SpriteMargins.TryGetValue(sprite, out float cached))
+            {
+                return cached;
+            }
+            float margin = 0f;
+            try
+            {
+                Texture2D texture = sprite.texture;
+                Rect area = sprite.textureRect;
+                int width = Mathf.RoundToInt(area.width);
+                int height = Mathf.RoundToInt(area.height);
+                if (texture != null && width > 0 && height > 0)
+                {
+                    RenderTexture target = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                    RenderTexture previous = RenderTexture.active;
+                    Graphics.Blit(texture, target,
+                        new Vector2(area.width / texture.width, area.height / texture.height),
+                        new Vector2(area.x / texture.width, area.y / texture.height));
+                    RenderTexture.active = target;
+                    var row = new Texture2D(width, 1, TextureFormat.RGBA32, false);
+                    row.ReadPixels(new Rect(0, height / 2, width, 1), 0, 0);
+                    RenderTexture.active = previous;
+                    RenderTexture.ReleaseTemporary(target);
+                    Color32[] pixels = row.GetPixels32();
+                    UnityEngine.Object.Destroy(row);
+
+                    byte strongest = 0;
+                    foreach (Color32 pixel in pixels)
+                    {
+                        strongest = Math.Max(strongest, pixel.a);
+                    }
+                    int first = 0;
+                    while (first < pixels.Length && pixels[first].a * 2 < strongest)
+                    {
+                        first++;
+                    }
+                    if (first < pixels.Length)
+                    {
+                        // A tightly packed sprite has its transparent edge trimmed off already.
+                        margin = sprite.textureRectOffset.x + first;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                CabinetLooterPlugin.Debug($"Could not read sprite {sprite.name}: {e.Message}");
+            }
+            SpriteMargins[sprite] = margin;
+            return margin;
         }
 
         private static readonly List<Graphic> GraphicsBuffer = new List<Graphic>();
