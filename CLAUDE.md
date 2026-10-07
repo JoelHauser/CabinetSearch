@@ -118,6 +118,18 @@ simpler README and `MOD-PAGE.md` (Forge description). Last version actually run 
 the side-by-side layout, the persistent search bar and both scroll fixes have not been seen in a
 raid yet. The README and mod page deliberately make no Inventory Walker claim until they have.
 
+**1.0.1 / backport 0.5.1** slide each heading's bar sideways (`AlignHeadings`) to line up with
+the leftmost pixel actually drawn in a grid view (the Border sprite, net of its transparent
+margin). **Bug report (sp-mod.com comments, wy189, 2026-10-07, on both builds, with a GIF):** the
+headings appear, then jump a few pixels left. The GIF showed exactly a 0.25 s delay, which is the
+re-measure interval: the first measurement ran in `Build` before Unity had laid out the new rows,
+was thrown out, and the shift only arrived with the next one. **1.0.2 on main, 0.5.2 on this
+branch (not built or run yet, written on a machine without the SPT install):** `Build` forces a
+layout pass on Content before its first Tick, the shift is static (one template, so one value for
+the game) and is applied to every heading on every tick, only the measuring is on the timer. No
+4.0.x name was involved: the cherry-pick conflicted only on the version lines. Still to do: build
+both, check in raid that the headings no longer move.
+
 ## What the next raid test has to look at
 
 1. `BepInEx\LogOutput.log` has `Cabinet Looter 0.5.0 loaded.` (1.0.0 on main) If instead it says the patches
