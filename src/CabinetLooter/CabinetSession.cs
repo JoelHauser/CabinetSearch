@@ -99,8 +99,13 @@ namespace CabinetLooter
         private const float ColumnSpacing = 8f;
         private const float MinColumnWidth = 132f;
 
-        /// <summary>How far every heading bar is slid sideways to line up with the grids' frames.</summary>
-        private float _headingShift;
+        /// <summary>
+        /// How far every heading bar is slid sideways to line up with the grids' frames. Kept for
+        /// the whole game, not per panel: every grid view comes from the one template, so the
+        /// shift is the same for every cabinet, and a panel that starts with it never shows its
+        /// headings moving.
+        /// </summary>
+        private static float _headingShift;
 
         /// <summary>When AlignHeadings next measures.</summary>
         private float _nextAlignAt;
@@ -389,6 +394,16 @@ namespace CabinetLooter
                                           + $"searched {_searcher.IsSearched(entry.Item)}, unknown items {_searcher.ContainsUnknownItems(entry.Item)}");
             }
 
+            // Lay the new rows out now rather than at the end of the frame, so the AlignHeadings in
+            // the Tick below measures the grids where they will be drawn. Against the stale layout
+            // the measurement was thrown out, the headings were drawn unshifted until the next
+            // one a quarter second later, and then visibly jumped left (reported on 1.0.1).
+            if (content is RectTransform contentRect)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(contentRect);
+            }
+            _nextAlignAt = 0f;
+
             _layoutDumpAt = CabinetLooterPlugin.DebugLogging.Value ? Time.unscaledTime + 3f : 0f;
             Tick();
         }
@@ -544,17 +559,27 @@ namespace CabinetLooter
         /// gap was zero and the frame still stuck out a pixel or two left of the heading. So this
         /// measures the leftmost thing actually drawn in the grid view. Every grid view comes from
         /// the one template, so the gap measured on any shown grid applies to every heading,
-        /// including drawers whose grid is still hidden. Measured a few times a second, not every
-        /// frame, as it walks the grid view's graphics.
+        /// including drawers whose grid is still hidden. Measured when the panel is built (after a
+        /// forced layout pass) and then a few times a second, not every frame, as it walks the grid
+        /// view's graphics; the shift itself is applied every tick, so a heading never waits for
+        /// the next measurement to get it.
         /// </summary>
         private void AlignHeadings()
         {
-            if (Time.unscaledTime < _nextAlignAt)
+            if (Time.unscaledTime >= _nextAlignAt)
             {
-                return;
+                _nextAlignAt = Time.unscaledTime + 0.25f;
+                MeasureHeadingShift();
             }
-            _nextAlignAt = Time.unscaledTime + 0.25f;
 
+            foreach (Entry entry in _display)
+            {
+                entry.Heading?.Shift(_headingShift);
+            }
+        }
+
+        private void MeasureHeadingShift()
+        {
             foreach (Entry entry in _display)
             {
                 ContainedGridsView grids = entry.IsOpened ? _openedGrids : entry.Grids;
@@ -579,11 +604,6 @@ namespace CabinetLooter
                     CabinetLooterPlugin.Debug($"Headings shifted {gap:F2} to line up with {leftmost.name} ({leftmost.GetType().Name}) of {entry.LogName}.");
                 }
                 break;
-            }
-
-            foreach (Entry entry in _display)
-            {
-                entry.Heading?.Shift(_headingShift);
             }
         }
 
