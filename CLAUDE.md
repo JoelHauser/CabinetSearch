@@ -5,6 +5,81 @@ searches them one after another. Optional cluster mode adds the cabinets standin
 Client only, one BepInEx plugin. Repo https://github.com/JoelHauser/CabinetSearch.git (the mod is
 called Cabinet Looter, the repo CabinetSearch).
 
+## NEXT, on the home machine: build and pre-release 1.0.2 and 0.5.2
+
+Joel asked (2026-10-07) for both as **GitHub pre-releases**, built at home. The fix for the heading
+jump (see the 1.0.1 paragraph under *State as it stands*) is committed and pushed on both branches:
+`main` 945a4a4 = **1.0.2**, `backport-4.0.x` a9f35e7 = **0.5.2**. It was written on a work machine
+that cannot build (no `H:` drive, `C:\HUH` is an unpatched 4.1.5 install, no 4.0.x client), so
+**it has never been compiled**. No `v1.0.2` or `v0.5.2` tag or release exists yet.
+
+All in PowerShell, from the repo root:
+
+1. `git fetch`, then `git pull` on both `main` and `backport-4.0.x`. Check
+   `Get-Process EscapeFromTarkov -ErrorAction SilentlyContinue` first: `-Install` cannot replace the
+   DLL while the game runs (build without `-Install` if it is up).
+2. On `main`: `scripts\pack.ps1 -SPTPath H:\SPT4.1.X -Install` -> `dist\CabinetLooter-1.0.2.zip`.
+   On `backport-4.0.x`: `scripts\pack.ps1 -SPTPath H:\SPT2026` -> `dist\CabinetLooter-0.5.2-SPT4.0.x.zip`.
+   `dist\` is ignored, so both zips survive the branch switch. Go back to `main` afterwards.
+   **If either build fails, stop and fix it before releasing anything.** The change calls only
+   Unity's `LayoutRebuilder` and the mod's own members, and the backport cherry-pick conflicted
+   only on the version lines, so an error is most likely in the new code itself.
+3. Write each set of notes below to a file in UTF-8 **without BOM** (Windows PowerShell 5.1's
+   `Out-File`/here-string pipes add one; use `[IO.File]::WriteAllText(path, text,
+   (New-Object Text.UTF8Encoding $false))`), then:
+   ```
+   gh release create v1.0.2 dist\CabinetLooter-1.0.2.zip --target main --prerelease --title "Cabinet Looter 1.0.2" --notes-file <notes-1.0.2>
+   gh release create v0.5.2 dist\CabinetLooter-0.5.2-SPT4.0.x.zip --target backport-4.0.x --prerelease --title "Cabinet Looter 0.5.2 (SPT 4.0.x)" --notes-file <notes-0.5.2>
+   ```
+   `--target` is what puts each new tag on its own branch.
+4. Check with `gh release list` / `gh release view`: both marked Pre-release, each with its zip,
+   1.0.1 still Latest.
+5. Joel tests in raid: open a cabinet, the headings must appear in place and never move. Only
+   once Joel confirms, promote: `gh release edit v1.0.2 --prerelease=false --latest` and
+   `gh release edit v0.5.2 --prerelease=false`. Then rewrite this section as history. The mod
+   page on sp-mod.com (mod 3103) is Joel's to update, including any reply to wy189.
+
+Notes for **1.0.2**:
+
+```markdown
+**For SPT 4.1.x.** On SPT 4.0.x, use [0.5.2](https://github.com/JoelHauser/CabinetSearch/releases/tag/v0.5.2) instead.
+
+## Fixed
+
+- Drawer headings no longer jump a few pixels to the left just after a drawer is opened. They now appear lined up with their grids from the start. Thanks to wy189 for the report.
+
+## Install
+
+Unzip over your SPT folder, replacing the old version. Client only. Settings are in the F12 menu.
+```
+
+Notes for **0.5.2**:
+
+```markdown
+**For SPT 4.0.x.** On SPT 4.1.x, use [1.0.2](https://github.com/JoelHauser/CabinetSearch/releases/tag/v1.0.2) instead.
+
+The 1.0.2 fix, backported to SPT 4.0.x.
+
+## Fixed
+
+- Drawer headings no longer jump a few pixels to the left just after a drawer is opened. They now appear lined up with their grids from the start. Thanks to wy189 for the report.
+
+## Install
+
+Unzip over your SPT folder, replacing the old version. Client only. Settings are in the F12 menu.
+```
+
+## Releasing
+
+Two lines of releases, always in pairs: `main` for SPT 4.1.x (`v1.0.x`, zip
+`CabinetLooter-<ver>.zip`, title "Cabinet Looter <ver>") and `backport-4.0.x` for SPT 4.0.x
+(`v0.5.x`, zip `CabinetLooter-<ver>-SPT4.0.x.zip`, title "Cabinet Looter <ver> (SPT 4.0.x)"). A fix
+goes to main first and is cherry-picked, then the 4.0.x name table at the top of that branch's
+CLAUDE.md is applied to whatever it touches; the version lines always conflict. Notes open with a bold "For SPT
+4.x.x" line linking the other line's matching release, then `## Fixed` (or `## Added`) and the same
+`## Install` paragraph. The version is in the csproj `<Version>` and `PluginVersion`, and
+`pack.ps1` refuses to pack if they disagree. Zips are built only on the home machine.
+
 ## This is the `backport-4.0.x` branch
 
 Same code as main 1.0.0 (1cbdb9e), released as **0.5.0** (tag v0.5.0, 2026-10-04), rebuilt for SPT 4.0.x (EFT 0.16.9.4008), whose
@@ -127,12 +202,12 @@ was thrown out, and the shift only arrived with the next one. **1.0.2 on main, 0
 branch (not built or run yet, written on a machine without the SPT install):** `Build` forces a
 layout pass on Content before its first Tick, the shift is static (one template, so one value for
 the game) and is applied to every heading on every tick, only the measuring is on the timer. No
-4.0.x name was involved: the cherry-pick conflicted only on the version lines. Still to do: build
-both, check in raid that the headings no longer move.
+4.0.x name was involved: the cherry-pick conflicted only on the version lines. Building
+and releasing both: see *NEXT* at the top.
 
 ## What the next raid test has to look at
 
-1. `BepInEx\LogOutput.log` has `Cabinet Looter 0.5.0 loaded.` (1.0.0 on main) If instead it says the patches
+1. `BepInEx\LogOutput.log` has `Cabinet Looter 0.5.2 loaded.` (1.0.2 on main) If instead it says the patches
    could not be applied, a target signature has changed.
 2. Turn on **Log cabinet details** (F12). Opening a drawer should log `Opened card_file_box_0N ...`
    and `Showing N drawers from 1 cabinet(s).` No `Showing` line means the panel attach failed or
